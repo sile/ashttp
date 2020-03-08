@@ -10,6 +10,7 @@ edition = "2018"
 anyhow = "1"
 async-std = "1"
 bytecodec = "0.4"
+factory = "0.1"
 futures = "0.3"  # TODO: Move to dev-dependencies
 thiserror = "1"
 httpcodec = "0.2"

@@ -2,6 +2,7 @@ pub use error::Error;
 
 pub mod connection;
 pub mod dispatcher;
+pub mod handler;
 pub mod request;
 
 mod error;

@@ -1,4 +1,5 @@
 use crate::dispatcher::Dispatcher;
+use crate::handler::RequestHandler;
 use crate::request::Req;
 use crate::{Error, Result};
 use async_std::io::{Read, Write};
@@ -45,25 +46,33 @@ where
     }
 
     fn poll_once(&mut self, cx: &mut Context) -> Poll<Result<bool>> {
-        match &self.phase {
+        match self.phase.take() {
             Phase::ReadRequestHead => {
                 // TODO(error handling): invoke default handler and response the result, then close this connection
                 self.read_request_head(cx)
             }
-            Phase::DispatchRequest(req) => {
-                todo!();
-            }
+            Phase::DispatchRequest(req) => self.dispatch_request(req),
+            Phase::None => unreachable!(),
         }
     }
 
     fn read_request_head(&mut self, cx: &mut Context) -> Poll<Result<bool>> {
         if self.read_buf.read(&mut self.stream, cx)?.is_pending() {
-            return Poll::Pending;
+            self.phase = Phase::ReadRequestHead;
+            Poll::Pending
+        } else if let Some(head) = self.read_buf.decode(&mut self.req_head_decoder)? {
+            self.phase = Phase::DispatchRequest(Req::new(head)?);
+            Poll::Ready(Ok(false))
+        } else {
+            self.phase = Phase::ReadRequestHead;
+            Poll::Ready(Ok(false))
         }
-        if let Some(head) = self.read_buf.decode(&mut self.req_head_decoder)? {
-            let req = Req::new(head)?;
-            self.phase = Phase::DispatchRequest(req);
-        }
+    }
+
+    fn dispatch_request(&mut self, head: Req<()>) -> Poll<Result<bool>> {
+        let handler = self.dispatcher.dispatch(&head)?;
+        handler.init(head)?;
+        self.phase = Phase::HandleRequest(handler);
         Poll::Ready(Ok(false))
     }
 }
@@ -155,4 +164,12 @@ where
 enum Phase {
     ReadRequestHead,
     DispatchRequest(Req<()>),
+    HandleRequest(RequestHandler),
+    None,
+}
+
+impl Phase {
+    fn take(&mut self) -> Self {
+        std::mem::replace(self, Phase::None)
+    }
 }
