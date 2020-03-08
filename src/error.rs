@@ -10,14 +10,8 @@ pub enum Error {
     },
 
     #[error("bad request")]
-    BadRequest { source: bytecodec::Error },
+    BadRequest(#[source] anyhow::Error),
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),
-}
-
-impl Error {
-    pub(crate) fn from_decode_error(e: bytecodec::Error) -> Self {
-        Self::BadRequest { source: e }
-    }
 }

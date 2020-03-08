@@ -2,8 +2,8 @@ pub use error::Error;
 
 pub mod connection;
 pub mod dispatcher;
+pub mod request;
 
 mod error;
-mod server;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

@@ -1,4 +1,5 @@
 use crate::dispatcher::Dispatcher;
+use crate::request::Req;
 use crate::{Error, Result};
 use async_std::io::{Read, Write};
 use bytecodec::combinator::MaybeEos;
@@ -10,7 +11,11 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 #[derive(Debug)]
-pub struct ConnectionBuilder {}
+pub struct ConnectionOptions {
+    read_buf_size: usize,
+    write_buf_size: usize,
+    keepalive: bool,
+}
 
 #[derive(Debug)]
 pub struct Connection<T> {
@@ -40,23 +45,26 @@ where
     }
 
     fn poll_once(&mut self, cx: &mut Context) -> Poll<Result<bool>> {
-        match self.phase {
-            Phase::ReadRequestHead => self.read_request_head(cx),
+        match &self.phase {
+            Phase::ReadRequestHead => {
+                // TODO(error handling): invoke default handler and response the result, then close this connection
+                self.read_request_head(cx)
+            }
+            Phase::DispatchRequest(req) => {
+                todo!();
+            }
         }
     }
 
     fn read_request_head(&mut self, cx: &mut Context) -> Poll<Result<bool>> {
-        match self.read_buf.read(&mut self.stream, cx) {
-            Poll::Pending => return Poll::Pending,
-            Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-            Poll::Ready(Ok(())) => {}
+        if self.read_buf.read(&mut self.stream, cx)?.is_pending() {
+            return Poll::Pending;
         }
-
-        match self.read_buf.decode(&mut self.req_head_decoder) {
-            Err(e) => Poll::Ready(Err(e)),
-            Ok(None) => Poll::Ready(Ok(false)),
-            Ok(Some(head)) => todo!(),
+        if let Some(head) = self.read_buf.decode(&mut self.req_head_decoder)? {
+            let req = Req::new(head)?;
+            self.phase = Phase::DispatchRequest(req);
         }
+        Poll::Ready(Ok(false))
     }
 }
 
@@ -85,7 +93,7 @@ impl ReadBuf {
                     let kind = std::io::ErrorKind::UnexpectedEof;
                     Err(std::io::Error::new(kind, e).into())
                 } else {
-                    Err(Error::from_decode_error(e))
+                    Err(Error::BadRequest(anyhow::Error::new(e)))
                 }
             }
             Ok(size) => {
@@ -94,7 +102,8 @@ impl ReadBuf {
                     decoder
                         .finish_decoding()
                         .map(Some)
-                        .map_err(Error::from_decode_error)
+                        .map_err(anyhow::Error::new)
+                        .map_err(Error::BadRequest)
                 } else {
                     Ok(None)
                 }
@@ -145,4 +154,5 @@ where
 #[derive(Debug)]
 enum Phase {
     ReadRequestHead,
+    DispatchRequest(Req<()>),
 }
